@@ -1,0 +1,674 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GRIB2 Codes & Templates Browser</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: monospace;
+      font-size: 14px;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    /* ── top bar ── */
+    #topbar {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 8px 12px;
+      border-bottom: 1px solid #ccc;
+      background: #f4f4f4;
+      flex-shrink: 0;
+    }
+    #topbar h1 { font-size: 15px; }
+    #search {
+      flex: 1;
+      padding: 4px 8px;
+      font-family: monospace;
+      font-size: 13px;
+      border: 1px solid #aaa;
+    }
+    #tab-codes, #tab-templates {
+      padding: 4px 12px;
+      cursor: pointer;
+      border: 1px solid #aaa;
+      background: #fff;
+      font-family: monospace;
+    }
+    #tab-codes.active, #tab-templates.active {
+      background: #222;
+      color: #fff;
+      border-color: #222;
+    }
+    #status { font-size: 12px; color: #666; white-space: nowrap; }
+
+    /* ── main layout ── */
+    #main {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    /* ── sidebar ── */
+    #sidebar {
+      width: 280px;
+      flex-shrink: 0;
+      border-right: 1px solid #ccc;
+      overflow-y: auto;
+      background: #fafafa;
+    }
+    .sidebar-item {
+      padding: 5px 10px;
+      cursor: pointer;
+      border-bottom: 1px solid #eee;
+      line-height: 1.4;
+    }
+    .sidebar-item:hover { background: #e8e8e8; }
+    .sidebar-item.selected { background: #222; color: #fff; }
+    .sidebar-item .table-num { font-weight: bold; }
+    .sidebar-item .table-name { color: #555; font-size: 12px; display: block; }
+    .sidebar-item.selected .table-name { color: #ccc; }
+    .sidebar-item .entry-count {
+      font-size: 11px;
+      color: #999;
+      float: right;
+      margin-top: 2px;
+    }
+    .sidebar-item.selected .entry-count { color: #aaa; }
+
+    /* ── detail panel ── */
+    #detail {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px;
+    }
+
+    #detail h2 { font-size: 15px; margin-bottom: 4px; }
+    #detail .subtitle { color: #666; font-size: 12px; margin-bottom: 14px; }
+
+    /* ── search results ── */
+    #search-results { padding: 12px 16px; overflow-y: auto; flex: 1; }
+    #search-results h3 { margin-bottom: 10px; }
+
+    /* ── tables ── */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    th {
+      text-align: left;
+      background: #eee;
+      padding: 5px 8px;
+      border: 1px solid #ccc;
+      font-size: 12px;
+    }
+    td {
+      padding: 4px 8px;
+      border: 1px solid #ddd;
+      vertical-align: top;
+    }
+    tr:hover td { background: #f9f9f9; }
+
+    .status-deprecated { color: #999; font-style: italic; }
+    .status-operational { color: #333; }
+
+    /* code/flag ref links */
+    a.ref-link {
+      color: #00e;
+      text-decoration: underline;
+      cursor: pointer;
+    }
+
+    /* subtitle groups within codeflag tables */
+    .group-header td {
+      background: #f0f0f0;
+      font-style: italic;
+      font-size: 12px;
+      color: #555;
+      padding: 3px 8px;
+    }
+
+    /* no-selection placeholder */
+    #placeholder {
+      color: #aaa;
+      padding: 40px;
+      text-align: center;
+    }
+
+    /* loading overlay */
+    #loading {
+      position: fixed; inset: 0;
+      background: rgba(255,255,255,0.9);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      gap: 10px;
+      z-index: 100;
+    }
+    #loading-bar-wrap {
+      width: 300px;
+      height: 8px;
+      background: #ddd;
+      border-radius: 4px;
+      overflow: hidden;
+    }
+    #loading-bar {
+      height: 100%;
+      background: #222;
+      width: 0%;
+      transition: width 0.3s;
+    }
+    #error-msg { color: red; padding: 40px; text-align: center; display: none; }
+  </style>
+</head>
+<body>
+
+<div id="loading">
+  <div>Loading GRIB2 data from GitHub…</div>
+  <div id="loading-bar-wrap"><div id="loading-bar"></div></div>
+  <div id="loading-label">Fetching CodeFlag.xml…</div>
+</div>
+
+<div id="error-msg"></div>
+
+<div id="topbar">
+  <h1>GRIB2 Browser</h1>
+  <button id="tab-codes" class="active" onclick="switchTab('codes')">Code &amp; Flag Tables</button>
+  <button id="tab-templates" onclick="switchTab('templates')">Templates</button>
+  <input id="search" type="search" placeholder="Search codes, meanings, template contents…" oninput="onSearch(this.value)" />
+  <span id="status"></span>
+</div>
+
+<div id="main">
+  <div id="sidebar"></div>
+  <div id="detail"><div id="placeholder">← Select a table from the sidebar</div></div>
+</div>
+
+<script>
+// ─────────────────────────────────────────────
+// Constants
+// ─────────────────────────────────────────────
+const RAW_BASE = "https://raw.githubusercontent.com/wmo-im/GRIB2/master/xml/";
+const CODEFLAG_URL  = RAW_BASE + "CodeFlag.xml";
+const TEMPLATE_URL  = RAW_BASE + "Template.xml";
+
+// ─────────────────────────────────────────────
+// Global state
+// ─────────────────────────────────────────────
+let state = {
+  tab: "codes",          // "codes" | "templates"
+  codeTables: [],        // [{id, type, title, subTables, entries}]
+  templateTables: [],    // [{id, type, title, entries}]
+  codeIndex: new Map(),  // tableId -> table (for cross-ref links)
+  selectedTableId: null,
+  searchQuery: "",
+};
+
+// ─────────────────────────────────────────────
+// XML helpers
+// ─────────────────────────────────────────────
+function getText(el, tag) {
+  return el.querySelector(tag)?.textContent?.trim() ?? "";
+}
+
+function parseXML(text) {
+  return new DOMParser().parseFromString(text, "application/xml");
+}
+
+// ─────────────────────────────────────────────
+// Pre-processing: CodeFlag.xml  →  structured tables
+//
+// Title_en format:  "Code table 0.0 - Discipline of processed data…"
+//                   "Flag table 3.3 - Resolution and component flags"
+// SubTitle_en:      may indicate discipline/category sub-grouping
+// ─────────────────────────────────────────────
+function processCodeFlags(doc) {
+  const tables = new Map();  // key: "0.0" → table object
+
+  const entries = doc.querySelectorAll("GRIB2_CodeFlag_en");
+  entries.forEach(el => {
+    const rawTitle = getText(el, "Title_en");
+    const m = rawTitle.match(/^(Code table|Flag table)\s+(\d+\.\d+)\s+-\s+(.+)$/i);
+    if (!m) return;
+
+    const type      = m[1].toLowerCase().includes("flag") ? "Flag table" : "Code table";
+    const id        = m[2];   // e.g. "0.0"
+    const tableTitle = m[3];  // e.g. "Discipline of processed data…"
+
+    if (!tables.has(id)) {
+      tables.set(id, {
+        id,
+        type,
+        title: tableTitle,
+        entries: [],
+      });
+    }
+
+    tables.get(id).entries.push({
+      subTitle:   getText(el, "SubTitle_en"),
+      code:       getText(el, "CodeFlag"),
+      meaning:    getText(el, "MeaningParameterDescription_en"),
+      status:     getText(el, "Status"),
+    });
+  });
+
+  // Sort tables by numeric id
+  const sorted = Array.from(tables.values()).sort((a, b) => {
+    const [aMaj, aMin] = a.id.split(".").map(Number);
+    const [bMaj, bMin] = b.id.split(".").map(Number);
+    return aMaj !== bMaj ? aMaj - bMaj : aMin - bMin;
+  });
+
+  // Build cross-reference index
+  const index = new Map();
+  sorted.forEach(t => index.set(t.id, t));
+
+  return { tables: sorted, index };
+}
+
+// ─────────────────────────────────────────────
+// Pre-processing: Template.xml  →  structured tables
+//
+// Title_en format:  "Grid definition template 3.0 - latitude/longitude"
+//                   "Product definition template 4.5 - …"
+// ─────────────────────────────────────────────
+function processTemplates(doc) {
+  const tables = new Map();
+
+  const entries = doc.querySelectorAll("GRIB2_Template_en");
+  entries.forEach(el => {
+    const rawTitle = getText(el, "Title_en");
+
+    // Match: "<Type> template <N.N> - <description>"
+    const m = rawTitle.match(/^(.+?template)\s+(\d+\.\d+)\s+-\s+(.+)$/i);
+    if (!m) return;
+
+    const type       = m[1];   // e.g. "Grid definition template"
+    const id         = m[2];   // e.g. "3.0"
+    const tableTitle = m[3];   // e.g. "latitude/longitude"
+
+    if (!tables.has(id)) {
+      tables.set(id, {
+        id,
+        type,
+        title: tableTitle,
+        entries: [],
+      });
+    }
+
+    tables.get(id).entries.push({
+      octetNo:   getText(el, "OctetNo"),
+      contents:  getText(el, "Contents_en"),
+      note:      getText(el, "Note_en"),
+      noteIDs:   getText(el, "noteIDs"),
+      codeTable: getText(el, "codeTable"),
+      flagTable: getText(el, "flagTable"),
+      status:    getText(el, "Status"),
+    });
+  });
+
+  // Sort by numeric id
+  const sorted = Array.from(tables.values()).sort((a, b) => {
+    const [aMaj, aMin] = a.id.split(".").map(Number);
+    const [bMaj, bMin] = b.id.split(".").map(Number);
+    return aMaj !== bMaj ? aMaj - bMaj : aMin - bMin;
+  });
+
+  return sorted;
+}
+
+// ─────────────────────────────────────────────
+// Fetch + bootstrap
+// ─────────────────────────────────────────────
+async function init() {
+  const loadingEl  = document.getElementById("loading");
+  const barEl      = document.getElementById("loading-bar");
+  const labelEl    = document.getElementById("loading-label");
+  const errorEl    = document.getElementById("error-msg");
+
+  function setProgress(pct, label) {
+    barEl.style.width = pct + "%";
+    labelEl.textContent = label;
+  }
+
+  try {
+    setProgress(10, "Fetching CodeFlag.xml…");
+    const cfText = await fetch(CODEFLAG_URL).then(r => {
+      if (!r.ok) throw new Error("Failed to fetch CodeFlag.xml: " + r.status);
+      return r.text();
+    });
+
+    setProgress(45, "Parsing codes & flags…");
+    const cfDoc = parseXML(cfText);
+    const { tables: codeTables, index: codeIndex } = processCodeFlags(cfDoc);
+
+    setProgress(55, "Fetching Template.xml…");
+    const tpText = await fetch(TEMPLATE_URL).then(r => {
+      if (!r.ok) throw new Error("Failed to fetch Template.xml: " + r.status);
+      return r.text();
+    });
+
+    setProgress(88, "Parsing templates…");
+    const tpDoc = parseXML(tpText);
+    const templateTables = processTemplates(tpDoc);
+
+    setProgress(100, "Done.");
+
+    state.codeTables     = codeTables;
+    state.templateTables = templateTables;
+    state.codeIndex      = codeIndex;
+
+    document.getElementById("status").textContent =
+      `${codeTables.length} code/flag tables · ${templateTables.length} templates`;
+
+    loadingEl.style.display = "none";
+    renderSidebar();
+
+  } catch (err) {
+    loadingEl.style.display = "none";
+    errorEl.style.display = "block";
+    errorEl.textContent = "Error: " + err.message +
+      "\n\nNote: This file must be opened via a web server (or GitHub Pages) " +
+      "due to CORS restrictions on GitHub's raw content.";
+    console.error(err);
+  }
+}
+
+// ─────────────────────────────────────────────
+// Tab switching
+// ─────────────────────────────────────────────
+function switchTab(tab) {
+  state.tab = tab;
+  state.selectedTableId = null;
+  state.searchQuery = "";
+  document.getElementById("search").value = "";
+  document.getElementById("tab-codes").classList.toggle("active", tab === "codes");
+  document.getElementById("tab-templates").classList.toggle("active", tab === "templates");
+  renderSidebar();
+  renderDetail(null);
+}
+
+// ─────────────────────────────────────────────
+// Sidebar rendering
+// ─────────────────────────────────────────────
+function currentTables() {
+  return state.tab === "codes" ? state.codeTables : state.templateTables;
+}
+
+function renderSidebar(filter = "") {
+  const sidebar = document.getElementById("sidebar");
+  const tables = currentTables();
+  const q = filter.toLowerCase();
+
+  let html = "";
+  tables.forEach(table => {
+    // If searching, only show tables that have matching entries
+    if (q) {
+      const match = matchesQuery(table, q);
+      if (!match) return;
+    }
+    const sel = table.id === state.selectedTableId ? " selected" : "";
+    html += `<div class="sidebar-item${sel}" onclick="selectTable('${table.id}')">
+      <span class="table-num">${escHtml(table.type)} ${escHtml(table.id)}</span>
+      <span class="entry-count">${table.entries.length}</span>
+      <span class="table-name">${escHtml(table.title)}</span>
+    </div>`;
+  });
+
+  sidebar.innerHTML = html || `<div style="padding:12px;color:#aaa">No results</div>`;
+}
+
+function matchesQuery(table, q) {
+  if (table.title.toLowerCase().includes(q)) return true;
+  if (table.id.includes(q)) return true;
+  return table.entries.some(e =>
+    (e.meaning || e.contents || "").toLowerCase().includes(q) ||
+    (e.code || "").toLowerCase() === q ||
+    (e.code || "").toLowerCase().includes(q)
+  );
+}
+
+// ─────────────────────────────────────────────
+// Select a table from sidebar
+// ─────────────────────────────────────────────
+function selectTable(id) {
+  state.selectedTableId = id;
+  state.searchQuery = "";
+  document.getElementById("search").value = "";
+  renderSidebar();
+  const table = currentTables().find(t => t.id === id);
+  renderDetail(table);
+}
+
+// ─────────────────────────────────────────────
+// Detail panel rendering
+// ─────────────────────────────────────────────
+function renderDetail(table) {
+  const detail = document.getElementById("detail");
+  if (!table) {
+    detail.innerHTML = `<div id="placeholder">← Select a table from the sidebar</div>`;
+    return;
+  }
+
+  if (state.tab === "codes") {
+    detail.innerHTML = renderCodeTable(table);
+  } else {
+    detail.innerHTML = renderTemplateTable(table);
+  }
+}
+
+function renderCodeTable(table) {
+  let html = `<h2>${escHtml(table.type)} ${escHtml(table.id)} — ${escHtml(table.title)}</h2>
+    <div class="subtitle">${table.entries.length} entries</div>
+    <table>
+      <thead><tr>
+        <th style="width:100px">Code</th>
+        <th>Meaning</th>
+        <th style="width:90px">Status</th>
+      </tr></thead>
+      <tbody>`;
+
+  let lastSubTitle = null;
+  table.entries.forEach(e => {
+    if (e.subTitle && e.subTitle !== lastSubTitle) {
+      lastSubTitle = e.subTitle;
+      html += `<tr class="group-header"><td colspan="3">${escHtml(e.subTitle)}</td></tr>`;
+    }
+    const statusCls = e.status === "Deprecated" ? "status-deprecated" : "status-operational";
+    html += `<tr>
+      <td><code>${escHtml(e.code)}</code></td>
+      <td>${escHtml(e.meaning)}</td>
+      <td class="${statusCls}">${escHtml(e.status)}</td>
+    </tr>`;
+  });
+
+  html += `</tbody></table>`;
+  return html;
+}
+
+function renderTemplateTable(table) {
+  let html = `<h2>${escHtml(table.type)} ${escHtml(table.id)} — ${escHtml(table.title)}</h2>
+    <div class="subtitle">${table.entries.length} octets/fields</div>
+    <table>
+      <thead><tr>
+        <th style="width:90px">Octet(s)</th>
+        <th>Contents</th>
+        <th style="width:180px">Note / Reference</th>
+        <th style="width:80px">Status</th>
+      </tr></thead>
+      <tbody>`;
+
+  table.entries.forEach(e => {
+    // Build reference cell: code table link, flag table link, note
+    let ref = "";
+    if (e.codeTable) {
+      ref += `Code table: <a class="ref-link" onclick="goToTable('${escAttr(e.codeTable)}','codes')">${escHtml(e.codeTable)}</a>`;
+    }
+    if (e.flagTable) {
+      if (ref) ref += "<br>";
+      ref += `Flag table: <a class="ref-link" onclick="goToTable('${escAttr(e.flagTable)}','codes')">${escHtml(e.flagTable)}</a>`;
+    }
+    if (e.note && !e.codeTable && !e.flagTable) {
+      ref = escHtml(e.note);
+    } else if (e.note) {
+      ref += `<br><small>${escHtml(e.note)}</small>`;
+    }
+
+    const statusCls = e.status === "Deprecated" ? "status-deprecated" : "status-operational";
+    html += `<tr>
+      <td><code>${escHtml(e.octetNo)}</code></td>
+      <td>${escHtml(e.contents)}</td>
+      <td>${ref}</td>
+      <td class="${statusCls}">${escHtml(e.status)}</td>
+    </tr>`;
+  });
+
+  html += `</tbody></table>`;
+  return html;
+}
+
+// ─────────────────────────────────────────────
+// Cross-reference navigation
+// ─────────────────────────────────────────────
+function goToTable(id, tab) {
+  if (state.tab !== tab) {
+    state.tab = tab;
+    document.getElementById("tab-codes").classList.toggle("active", tab === "codes");
+    document.getElementById("tab-templates").classList.toggle("active", tab === "templates");
+  }
+  state.selectedTableId = id;
+  state.searchQuery = "";
+  document.getElementById("search").value = "";
+  renderSidebar();
+  const table = currentTables().find(t => t.id === id);
+  if (table) {
+    renderDetail(table);
+    // Scroll sidebar item into view
+    setTimeout(() => {
+      const items = document.querySelectorAll(".sidebar-item.selected");
+      if (items[0]) items[0].scrollIntoView({ block: "nearest" });
+    }, 50);
+  } else {
+    renderDetail(null);
+    document.getElementById("detail").innerHTML =
+      `<div style="padding:20px;color:#c00">Table ${escHtml(id)} not found.</div>`;
+  }
+}
+
+// ─────────────────────────────────────────────
+// Search
+// ─────────────────────────────────────────────
+function onSearch(query) {
+  state.searchQuery = query.trim();
+
+  if (!state.searchQuery) {
+    state.selectedTableId = null;
+    renderSidebar();
+    renderDetail(null);
+    return;
+  }
+
+  state.selectedTableId = null;
+  renderSidebar(state.searchQuery);
+  renderSearchResults(state.searchQuery);
+}
+
+function renderSearchResults(query) {
+  const q = query.toLowerCase();
+  const tables = currentTables();
+  const detail = document.getElementById("detail");
+
+  // Gather all matching entries across all tables
+  let hits = [];
+  tables.forEach(table => {
+    table.entries.forEach(e => {
+      const haystack = [
+        table.type, table.id, table.title,
+        e.code || "", e.meaning || "", e.contents || "", e.note || "",
+      ].join(" ").toLowerCase();
+
+      if (haystack.includes(q)) {
+        hits.push({ table, entry: e });
+      }
+    });
+  });
+
+  if (!hits.length) {
+    detail.innerHTML = `<div style="padding:20px;color:#aaa">No results for "${escHtml(query)}"</div>`;
+    return;
+  }
+
+  const label = state.tab === "codes" ? "code/flag tables" : "templates";
+  let html = `<h3 style="margin-bottom:12px">${hits.length} result${hits.length!==1?"s":""} for "${escHtml(query)}" across ${label}</h3>
+    <table>
+    <thead><tr>
+      <th style="width:140px">Table</th>`;
+
+  if (state.tab === "codes") {
+    html += `<th style="width:90px">Code</th><th>Meaning</th><th style="width:90px">Status</th>`;
+  } else {
+    html += `<th style="width:80px">Octet(s)</th><th>Contents</th><th style="width:90px">Status</th>`;
+  }
+  html += `</tr></thead><tbody>`;
+
+  hits.forEach(({ table, entry: e }) => {
+    const statusCls = e.status === "Deprecated" ? "status-deprecated" : "status-operational";
+    const tableRef = `<a class="ref-link" onclick="selectTable('${escAttr(table.id)}')">${escHtml(table.type)} ${escHtml(table.id)}</a>`;
+    if (state.tab === "codes") {
+      html += `<tr>
+        <td>${tableRef}<br><small>${escHtml(table.title)}</small></td>
+        <td><code>${escHtml(e.code)}</code></td>
+        <td>${highlight(escHtml(e.meaning), query)}</td>
+        <td class="${statusCls}">${escHtml(e.status)}</td>
+      </tr>`;
+    } else {
+      html += `<tr>
+        <td>${tableRef}<br><small>${escHtml(table.title)}</small></td>
+        <td><code>${escHtml(e.octetNo)}</code></td>
+        <td>${highlight(escHtml(e.contents), query)}</td>
+        <td class="${statusCls}">${escHtml(e.status)}</td>
+      </tr>`;
+    }
+  });
+
+  html += `</tbody></table>`;
+  detail.innerHTML = html;
+}
+
+// Highlight matching text
+function highlight(text, query) {
+  const q = escHtml(query);
+  const re = new RegExp(`(${q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, "gi");
+  return text.replace(re, `<mark>$1</mark>`);
+}
+
+// ─────────────────────────────────────────────
+// Utilities
+// ─────────────────────────────────────────────
+function escHtml(s) {
+  return (s ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+function escAttr(s) {
+  return (s ?? "").replace(/'/g, "\\'");
+}
+
+// ─────────────────────────────────────────────
+// Boot
+// ─────────────────────────────────────────────
+init();
+</script>
+</body>
+</html>
