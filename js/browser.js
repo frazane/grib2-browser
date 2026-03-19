@@ -19,10 +19,10 @@ function currentTables() {
   return state.tab === "codes" ? state.codeTables : state.templateTables;
 }
 
-function renderSidebar(filter = "") {
+function renderSidebar() {
   const sidebar = document.getElementById("sidebar");
   const tables = currentTables();
-  const q = filter.toLowerCase();
+  const q = state.searchQuery.toLowerCase();
 
   let html = "";
   tables.forEach(table => {
@@ -183,7 +183,7 @@ function onSearch(query) {
   }
 
   state.selectedTableId = null;
-  renderSidebar(state.searchQuery);
+  renderSidebar();
   renderSearchResults(state.searchQuery);
 }
 
