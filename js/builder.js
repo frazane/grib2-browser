@@ -3,6 +3,13 @@
 // ─────────────────────────────────────────────
 let topTab = "browser";
 
+// Navigate from builder to a table in the browser tab.
+// builderState is untouched; switching back via the Builder tab restores the view.
+function goToTableFromBuilder(id, tab) {
+  switchTopTab("browser");
+  goToTable(id, tab);
+}
+
 function switchTopTab(tab) {
   topTab = tab;
   document.getElementById("top-tab-browser").classList.toggle("active", tab === "browser");
@@ -188,7 +195,7 @@ function builderCodeSelect(tableId, curVal, onchangeExpr) {
     const sel = String(e.code) === String(curVal) ? " selected" : "";
     html += `<option value="${escHtml(e.code)}"${sel}>${escHtml(e.code)} — ${escHtml(e.meaning)}</option>`;
   });
-  html += `</select> <span class="field-hint">Code table ${escHtml(tableId)}</span>`;
+  html += `</select> ${bCodeTableHint(tableId)}`;
   return html;
 }
 
@@ -204,6 +211,11 @@ function bTypeTag(ftype, inferred = false) {
   const [cls, label] = map[ftype] || ["type-unsigned", "unsigned"];
   const title = inferred ? ` title="type inferred from field description"` : "";
   return `<span class="type-tag ${cls}"${title}>${label}</span>`;
+}
+
+// Clickable "Code table X.X" hint that navigates to the browser tab
+function bCodeTableHint(tableId) {
+  return `<span class="field-hint">Code table <a class="ref-link" onclick="goToTableFromBuilder('${escAttr(tableId)}','codes')">${escHtml(tableId)}</a></span>`;
 }
 
 // Standard table header for builder sections
@@ -266,14 +278,14 @@ function renderBuilderStep1() {
         <td>Master tables version number ${bTypeTag("unsigned")}</td>
         <td><input type="number" min="0" max="255" value="${bs.masterTablesVersion}"
               onchange="builderState.s1.masterTablesVersion=+this.value" />
-            <span class="field-hint">Code table 1.0</span></td>
+            ${bCodeTableHint("1.0")}</td>
       </tr>
       <tr>
         <td><code>11</code></td>
         <td>Local tables version number ${bTypeTag("unsigned")}</td>
         <td><input type="number" min="0" max="255" value="${bs.localTablesVersion}"
               onchange="builderState.s1.localTablesVersion=+this.value" />
-            <span class="field-hint">Code table 1.1</span></td>
+            ${bCodeTableHint("1.1")}</td>
       </tr>
       <tr>
         <td><code>12</code></td>
@@ -374,7 +386,7 @@ function renderTemplateStep(stepId, sectionKey, heading, subtitle, templatePrefi
     const tmpl = state.templateTables.find(t => t.id === bs.templateId);
     if (tmpl) {
       html += `<tr><td colspan="3" style="background:#f0f0f0;font-weight:bold;font-size:12px;padding:5px 8px">
-        Template ${escHtml(bs.templateId)} fields</td></tr>`;
+        Template <a class="ref-link" onclick="goToTableFromBuilder('${escAttr(bs.templateId)}','templates')">${escHtml(bs.templateId)}</a> fields</td></tr>`;
       flattenTemplateEntries(bs.templateId).forEach((entry, idx) => {
         const range = parseOctetRange(entry.octetNo);
         if (range.length === 0) return;
