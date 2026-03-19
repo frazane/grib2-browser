@@ -48,10 +48,14 @@ async function init() {
 
     setProgress(70, "Parsing codes & flags…");
     const cfDoc = parseXML(cfText);
+    if (cfDoc.querySelector("parsererror"))
+      throw new Error("CodeFlag.xml is not valid XML: " + cfDoc.querySelector("parsererror").textContent.trim());
     const { tables: codeTables, index: codeIndex } = processCodeFlags(cfDoc);
 
     setProgress(88, "Parsing templates…");
     const tpDoc = parseXML(tpText);
+    if (tpDoc.querySelector("parsererror"))
+      throw new Error("Template.xml is not valid XML: " + tpDoc.querySelector("parsererror").textContent.trim());
     const templateTables = processTemplates(tpDoc);
 
     setProgress(100, "Done.");
