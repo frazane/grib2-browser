@@ -2,3 +2,4 @@ _dev/
 .claude/
 CLAUDE.md
 node_modules/
+tests/node_modules/
