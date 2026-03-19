@@ -42,6 +42,24 @@ function writeSintN(view, offset, value, n) {
   writeUintN(view, offset, v, n);
 }
 
+function flattenTemplateEntries(templateId, visited) {
+  visited = visited || new Set();
+  if (visited.has(templateId)) return [];
+  visited.add(templateId);
+  const tmpl = state.templateTables.find(t => t.id === templateId);
+  if (!tmpl) return [];
+  const result = [];
+  tmpl.entries.forEach(entry => {
+    const m = /same\s+as\s+.*?(\d+\.\d+)/i.exec(entry.contents);
+    if (m) {
+      const sub = flattenTemplateEntries(m[1], visited);
+      if (sub.length) { sub.forEach(e => result.push(e)); return; }
+    }
+    result.push(entry);
+  });
+  return result;
+}
+
 function buildTemplateBytes(templateId, fieldValues) {
   if (!templateId) return new Uint8Array(0);
   const tmpl = state.templateTables.find(t => t.id === templateId);
@@ -51,7 +69,7 @@ function buildTemplateBytes(templateId, fieldValues) {
   let minOctet = Infinity;
   let maxOctet = 0;
 
-  tmpl.entries.forEach((entry, idx) => {
+  flattenTemplateEntries(templateId).forEach((entry, idx) => {
     const range = parseOctetRange(entry.octetNo);
     if (range.length > 0 && range.start > 0) {
       fields.push({ ...range, entry, idx });

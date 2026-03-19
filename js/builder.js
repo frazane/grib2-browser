@@ -326,7 +326,7 @@ function renderTemplateStep(stepId, sectionKey, heading, subtitle, templatePrefi
     if (tmpl) {
       html += `<tr><td colspan="3" style="background:#f0f0f0;font-weight:bold;font-size:12px;padding:5px 8px">
         Template ${escHtml(bs.templateId)} fields</td></tr>`;
-      tmpl.entries.forEach((entry, idx) => {
+      flattenTemplateEntries(bs.templateId).forEach((entry, idx) => {
         const range = parseOctetRange(entry.octetNo);
         if (range.length === 0) return;
         const tableRef = entry.codeTable || entry.flagTable;
