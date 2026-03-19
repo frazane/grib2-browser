@@ -1,0 +1,13 @@
+GRIB2 Browser
+Copyright 2024 frazane
+
+This product includes software developed under the Apache License 2.0.
+
+---
+
+GRIB2 Table Data
+----------------
+The files data/CodeFlag.xml and data/Template.xml are reproduced from the
+WMO GRIB2 repository (https://github.com/wmo-im/GRIB2, tag v36),
+copyright © 2020-2024 WMO, used under the MIT License.
+See data/LICENSE-WMO for the full license text.

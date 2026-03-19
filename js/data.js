@@ -1,9 +1,9 @@
 // ─────────────────────────────────────────────
 // Constants
 // ─────────────────────────────────────────────
-const RAW_BASE = "https://raw.githubusercontent.com/wmo-im/GRIB2/master/xml/";
-const CODEFLAG_URL  = RAW_BASE + "CodeFlag.xml";
-const TEMPLATE_URL  = RAW_BASE + "Template.xml";
+const WMO_TABLES_VERSION = "v36";
+const CODEFLAG_URL = "data/CodeFlag.xml";
+const TEMPLATE_URL = "data/Template.xml";
 
 // ─────────────────────────────────────────────
 // Global state
@@ -61,7 +61,7 @@ async function init() {
     state.codeIndex      = codeIndex;
 
     document.getElementById("status").textContent =
-      `${codeTables.length} code/flag tables · ${templateTables.length} templates`;
+      `${codeTables.length} code/flag tables · ${templateTables.length} templates · WMO ${WMO_TABLES_VERSION}`;
 
     loadingEl.style.display = "none";
     renderSidebar();
@@ -70,8 +70,7 @@ async function init() {
     loadingEl.style.display = "none";
     errorEl.style.display = "block";
     errorEl.textContent = "Error: " + err.message +
-      "\n\nNote: This file must be opened via a web server (or GitHub Pages) " +
-      "due to CORS restrictions on GitHub's raw content.";
+      "\n\nNote: This file must be opened via a web server (or GitHub Pages), not directly from the filesystem.";
     console.error(err);
   }
 }
