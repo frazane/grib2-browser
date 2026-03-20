@@ -155,8 +155,9 @@ function builderNext(stepId) {
 // Builder — shared helpers
 // ─────────────────────────────────────────────
 
-// Build a <select> from a code table + append "Code table X.X" hint
-function builderCodeSelect(tableId, curVal, onchangeExpr) {
+// Build a <select> from a code table + append "Code table X.X" hint.
+// entryFilter is an optional function(entry) => boolean to restrict visible entries.
+function builderCodeSelect(tableId, curVal, onchangeExpr, entryFilter) {
   const tbl = state.codeIndex.get(tableId);
   if (!tbl) {
     return `<input type="number" min="0" value="${curVal}" onchange="${onchangeExpr}" />
@@ -164,6 +165,7 @@ function builderCodeSelect(tableId, curVal, onchangeExpr) {
   }
   let html = `<select onchange="${onchangeExpr}">`;
   tbl.entries.forEach(e => {
+    if (entryFilter && !entryFilter(e)) return;
     const c = (e.code || "").trim();
     if (!c || c.includes("-")) return;
     if (e.status === "Deprecated") return;
@@ -363,7 +365,20 @@ function renderTemplateStep(stepId, sectionKey, heading, subtitle, templatePrefi
     if (tmpl) {
       html += `<tr><td colspan="3" style="background:#f0f0f0;font-weight:bold;font-size:12px;padding:5px 8px">
         Template <a class="ref-link" onclick="goToTableFromBuilder('${escAttr(bs.templateId)}','templates')">${escHtml(bs.templateId)}</a> fields</td></tr>`;
-      flattenTemplateEntries(bs.templateId).forEach((entry, idx) => {
+
+      const flatEntries = flattenTemplateEntries(bs.templateId);
+
+      // Pre-scan: find current parameter category value for table 4.2 filtering.
+      // Table 4.2 is indexed by discipline+category, so we need the category field's
+      // current value (whichever field references table 4.1) before rendering.
+      let categoryFieldValue = 0;
+      flatEntries.forEach((entry, i) => {
+        if (entry.codeTable === "4.1") {
+          categoryFieldValue = bs.fields[i] !== undefined ? +bs.fields[i] : 0;
+        }
+      });
+
+      flatEntries.forEach((entry, idx) => {
         const range = parseOctetRange(entry.octetNo);
         if (range.length === 0) return;
         const tableRef  = entry.codeTable || entry.flagTable;
@@ -374,8 +389,31 @@ function renderTemplateStep(stepId, sectionKey, heading, subtitle, templatePrefi
 
         let valueCell;
         if (ftype === "codetable") {
+          // Tables 4.1 and 4.2 contain entries for all disciplines (and categories),
+          // grouped by SubTitle. Filter to the relevant discipline/category so the
+          // select shows only the correct options for this message.
+          let entryFilter = null;
+          if (tableRef === "4.1") {
+            const disc = builderState.s0.discipline;
+            entryFilter = e => {
+              if (!e.subTitle) return true;
+              const m = /product discipline (\d+)/i.exec(e.subTitle);
+              return m ? parseInt(m[1], 10) === disc : true;
+            };
+          } else if (tableRef === "4.2") {
+            const disc = builderState.s0.discipline;
+            const cat  = categoryFieldValue;
+            entryFilter = e => {
+              if (!e.subTitle) return true;
+              const dm = /product discipline (\d+)/i.exec(e.subTitle);
+              const cm = /parameter category (\d+)/i.exec(e.subTitle);
+              const discOk = dm ? parseInt(dm[1], 10) === disc : true;
+              const catOk  = cm ? parseInt(cm[1], 10) === cat  : true;
+              return discOk && catOk;
+            };
+          }
           valueCell = builderCodeSelect(tableRef, curVal,
-            `builderState['${sectionKey}'].fields[${idx}]=+this.value`);
+            `builderState['${sectionKey}'].fields[${idx}]=+this.value`, entryFilter);
         } else if (ftype === "ieeefloat") {
           valueCell = `<input type="number" step="any" value="${curVal}"
             onchange="builderState['${sectionKey}'].fields[${idx}]=parseFloat(this.value)||0" />
